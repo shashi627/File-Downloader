@@ -1,0 +1,77 @@
+name: File Downloader
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL of the file to download'
+        required: true
+        type: string
+      checksum_type:
+        description: 'Select Checksum Type'
+        required: false
+        type: choice
+        default: 'none'
+        options:
+          - none
+          - md5
+          - sha-1
+          - sha-256
+          - sha-512
+      checksum_value:
+        description: 'Paste Checksum Value (leave empty if none)'
+        required: false
+        type: string
+      split:
+        description: 'Select number of split connections'
+        required: false
+        type: choice
+        default: '8'
+        options:
+          - '1'
+          - '4'
+          - '8'
+          - '16'
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Install aria2
+        run: sudo apt-get update -y && sudo apt-get install -y aria2
+
+      - name: Download File
+        env:
+          DOWNLOAD_URL: ${{ inputs.url }}
+          CHECKSUM_TYPE: ${{ inputs.checksum_type }}
+          CHECKSUM_VALUE: ${{ inputs.checksum_value }}
+          SPLIT_COUNT: ${{ inputs.split }}
+        run: |
+          mkdir -p download
+          
+          ARGS=(
+            "--dir=download"
+            "--max-connection-per-server=$SPLIT_COUNT"
+            "--split=$SPLIT_COUNT"
+            "--content-disposition=true"
+            "--user-agent=curl/8.21.0"
+          )
+          
+          if [ "$CHECKSUM_TYPE" != "none" ] && [ -n "$CHECKSUM_VALUE" ]; then
+            ARGS+=("--checksum=$CHECKSUM_TYPE=$CHECKSUM_VALUE")
+            echo "Enabling checksum validation: $CHECKSUM_TYPE"
+          else
+            echo "Checksum verification skipped."
+          fi
+          
+          echo "Initiating download with $SPLIT_COUNT connection(s)..."
+          aria2c "${ARGS[@]}" "$DOWNLOAD_URL"
+
+      - name: Upload File
+        uses: actions/upload-artifact@v7
+        with:
+          path: download/*
+          archive: false
+          if-no-files-found: error
+          
